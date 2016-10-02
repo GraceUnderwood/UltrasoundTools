@@ -444,6 +444,7 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
       currentScanline = Scanline(start, end)
       self.scanlines.append(currentScanline)
 
+
   def scanlineEndPoints(self, scanline):
     import math
     # Compute curvilinear xy values
@@ -498,6 +499,7 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
     endScanline = [endScanlineX, endScanlineY]
 
     return [startScanline, endScanline]
+
 
   def euclidean_distance(self,point1,point2):
       return math.sqrt((point2[0] - point1[0]) ** 2 + (point2[1] - point1[1]) ** 2 + (point2[2] - point1[2]) ** 2)

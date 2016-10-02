@@ -71,13 +71,13 @@
        Date="2016.07.02 10:50" />
   </CoordinateDefinitions>
   <ScanConversion
-    TransducerName="Ultrasonix_L9-4/38"
+    TransducerName="Telemed-L12"
     TransducerGeometry="LINEAR"
-    ImagingDepthMm="37.8"
-    TransducerWidthMm="33.28"
+    ImagingDepthMm="39"
+    TransducerWidthMm="39"
     OutputImageSizePixel="512 512"
     TransducerCenterPixel="256 0"
-    OutputImageSpacingMmPerPixel="0.061 0.061"
+    OutputImageSpacingMmPerPixel="0.076172 0.076172"
     NumberOfScanLines="90"
     NumberOfSamplesPerScanLine="210" />
 </PlusConfiguration>

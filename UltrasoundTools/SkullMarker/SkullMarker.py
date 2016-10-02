@@ -1,8 +1,8 @@
 import os
-import unittest
 import vtk, qt, ctk, slicer
 from slicer.ScriptedLoadableModule import *
 import logging
+
 
 #
 # SkullMarker
@@ -35,10 +35,14 @@ class SkullMarkerWidget(ScriptedLoadableModuleWidget):
   https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
   """
 
+  def __init__(self, parent=None):
+    ScriptedLoadableModuleWidget.__init__(self, parent)
+    self.logic = SkullMarkerLogic()
+
+
   def setup(self):
     ScriptedLoadableModuleWidget.setup(self)
 
-    #
     # Inputs Area
     #
     inputsCollapsibleButton = ctk.ctkCollapsibleButton()
@@ -145,7 +149,8 @@ class SkullMarkerWidget(ScriptedLoadableModuleWidget):
     # Start fiducial placement button
     #
     self.fiducialPlacementButton = qt.QPushButton("Start fiducial placement")
-    self.fiducialPlacementButton.setStyleSheet('QPushButton {background-color: #009900}')
+    self.fiducialPlacementButton.setCheckable(True)
+    # self.fiducialPlacementButton.setStyleSheet('QPushButton {background-color: #009900}')
     self.fiducialPlacementButton.toolTip = "Starts and stops fiducial placement on bone surfaces along scanlines."
     self.fiducialPlacementButton.enabled = False
     functionsFormLayout.addRow(self.fiducialPlacementButton)
@@ -171,8 +176,7 @@ class SkullMarkerWidget(ScriptedLoadableModuleWidget):
 
 
   def onInputSelect(self):
-    self.fiducialPlacementButton.enabled = self.configureParametersButton.enabled = self.inputSelector.currentNode() and self.fiducialSelector.currentNode() and os.path.isfile(
-      self.configFile.text)
+    self.updateGui()
 
 
   def selectFile(self):
@@ -183,41 +187,40 @@ class SkullMarkerWidget(ScriptedLoadableModuleWidget):
 
 
   def onFiducialPlacementButton(self):
-    logic = ScanlineBoneDetectionLogic(self.configFile.text, self.inputSelector.currentNode(),
-                                       self.fiducialSelector.currentNode(), self.startingDepthMM.value,
-                                       self.endingDepthMM.value)
+    logic = SkullMarkerLogic(self.configFile.text, self.inputSelector.currentNode(),
+                             self.fiducialSelector.currentNode(), self.startingDepthMM.value, self.endingDepthMM.value)
 
     # Validate the number of scanlines
-    if (self.scanlineNumber.value > logic.ultrasoundGeometry.numberOfScanlines):
+    if (self.scanlineNumber.value > logic.usGeometryLogic.numberOfScanlines):
       slicer.util.errorDisplay(
-        "The number of scanlines specified exceeds the maximum of: " + str(logic.ultrasoundGeometry.numberOfScanlines))
+        "The number of scanlines specified exceeds the maximum of: " + str(logic.usGeometryLogic.numberOfScanlines))
       return False
 
     # If fiducials are not being placed, start tracking the volume changes and swtich button to "stop"
-    if (logic.changeEvent == 0):
-      logic.computeFiducialScanlines(self.scanlineNumber.value)
-      logic.trackVolumeChanges(self.inputSelector.currentNode())
-      self.fiducialPlacementButton.setStyleSheet('QPushButton {background-color: #cc2900}')
+    if self.fiducialPlacementButton.isChecked():
+      # logic.computeFiducialScanlines(self.scanlineNumber.value)
+      logic.startTrackingVolumeChanges(self.inputSelector.currentNode())
+      # self.fiducialPlacementButton.setStyleSheet('QPushButton {background-color: #cc2900}')
       self.fiducialPlacementButton.setText("Stop fiducial placement")
     # If fiducials are being placed, stop tracking volume changes and switch button to "start"
     else:
       logic.stopTrackingVolumeChanges(self.inputSelector.currentNode())
-      self.fiducialPlacementButton.setStyleSheet('QPushButton {background-color: #009900}')
+      # self.fiducialPlacementButton.setStyleSheet('QPushButton {background-color: #009900}')
       self.fiducialPlacementButton.setText("Start fiducial placement")
 
 
   def onConfigureParametersButton(self):
-    logic = ScanlineBoneDetectionLogic(self.configFile.text, self.inputSelector.currentNode(), self.fiducialSelector.currentNode(), self.startingDepthMM.value, self.endingDepthMM.value)
+    logic = SkullMarkerLogic(self.configFile.text, self.inputSelector.currentNode(), self.fiducialSelector.currentNode(), self.startingDepthMM.value, self.endingDepthMM.value)
 
-    if (ScanlineBoneDetectionLogic.configuring == 0): # Configuring off, so begin configuration
-      ScanlineBoneDetectionLogic.configuring = 1
+    if (SkullMarkerLogic.configuring == 0): # Configuring off, so begin configuration
+      SkullMarkerLogic.configuring = 1
       logic.computeFiducialScanlines(self.scanlineNumber.value)
-      logic.trackVolumeChanges(self.inputSelector.currentNode())
+      logic.startTrackingVolumeChanges(self.inputSelector.currentNode())
       self.configureParametersButton.setStyleSheet('QPushButton {background-color: #cc2900}')
       self.configureParametersButton.setText("Stop configuring threshold")
 
     else: # Configuring was on, so stop
-      ScanlineBoneDetectionLogic.configuring = 0
+      SkullMarkerLogic.configuring = 0
       logic.stopTrackingVolumeChanges(self.inputSelector.currentNode())
       self.configureParametersButton.setStyleSheet('QPushButton {background-color: #e67300}')
       self.configureParametersButton.setText("Begin configuring threshold")
@@ -237,42 +240,67 @@ class SkullMarkerWidget(ScriptedLoadableModuleWidget):
 
 
   def setThreshold(self):
-    ScanlineBoneDetectionLogic.threshold = self.thresholdSlider.value
+    SkullMarkerLogic.threshold = self.thresholdSlider.value
+
+
+  def updateGui(self):
+    readyToRun = True
+
+    if os.path.isfile(self.configFile.text) == None:
+      readyToRun = False
+
+    if self.fiducialSelector.currentNode == None:
+      readyToRun = False
+
+    if self.inputSelector.currentNode() == None:
+      readyToRun = False
+
+    if readyToRun == True:
+      self.fiducialPlacementButton.enabled = True
+      self.configureParametersButton.enabled = True
+    else:
+      self.fiducialPlacementButton.enabled = False
+      self.configureParametersButton.enabled = False
 
 
 #
 # SkullMarkerLogic
 #
-
 class SkullMarkerLogic(ScriptedLoadableModuleLogic):
-  """This class should implement all the actual
-  computation done by your module.  The interface
-  should be such that other python code can import
-  this class and make use of the functionality without
-  requiring an instance of the Widget.
-  Uses ScriptedLoadableModuleLogic base class, available at:
-  https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
-  """
-  changeEvent = 0
-  threshold = 0
-  configuring = 0
 
-  def __init__(self, configFile, inputVolume, fiducialNode, startDepth, endDepth):
-    import USGeometry
-    self.ultrasoundGeometry = USGeometry.USGeometryLogic(configFile, inputVolume)
-    self.fiducialNode = fiducialNode
-    self.fiducialNode.SetMarkupLabelFormat("")  # Only show markup spheres
+  def __init__(self, parent = None):
+    ScriptedLoadableModuleLogic.__init__(self, parent)
     self.fiducialScanlines = []
-    self.startingDepthMM = startDepth
-    self.endingDepthMM = endDepth
-    # Fiducials for bone surface will be placed between these two values
-    self.startingDepthPixel = int(self.startingDepthMM / self.ultrasoundGeometry.outputImageSpacing[1])
-    self.endingDepthPixel = int(self.endingDepthMM / self.ultrasoundGeometry.outputImageSpacing[1])
+    self.threshold = 0
+    self.fiducialNodeId = None
+    self.usGeometryLogic = None
+    self.minDepthMm = 0
+    self.maxDepthMm = 0
+
+    self.volumeModifiedObserverTag = None
+
+
+  def importGeometry(self, configFile, inputVolume):
+    import USGeometry
+    self.usGeometryLogic = USGeometry.USGeometryLogic(configFile, inputVolume)
+
+
+  def setFiducialNode(self, fiducialNode):
+    if fiducialNode == None:
+      self.fiducialNodeId = None
+      return
+    self.fiducialNodeId = fiducialNode.GetID()
+
+
+  def setMinMaxDepth(self, minDepthMm, maxDepthMm):
+    self.minDepthMm = minDepthMm
+    self.maxDepthMm = maxDepthMm
+
 
   def computeFiducialScanlines(self, scanlineNumber):
     # Find the middle scanline which will always be used
-    midScanlineNumber = self.ultrasoundGeometry.numberOfScanlines / 2
-    midScanline = self.ultrasoundGeometry.scanlineEndPoints(midScanlineNumber)
+    midScanlineNumber = self.usGeometryLogic.numberOfScanlines / 2
+    midScanline = self.usGeometryLogic.scanlineEndPoints(midScanlineNumber)
     self.fiducialScanlines.append(midScanline)
 
     # Compute the interval between scanlines for even spacing
@@ -288,36 +316,45 @@ class SkullMarkerLogic(ScriptedLoadableModuleLogic):
       evenNumberOfScanlines = True
     for i in range(scanlinesPerHalf):
       # Compute and add scanline to right of middle
-      rightScanline = self.ultrasoundGeometry.scanlineEndPoints(midScanlineNumber + ((i + 1) * scanlineInterval))
+      rightScanline = self.usGeometryLogic.scanlineEndPoints(midScanlineNumber + ((i + 1) * scanlineInterval))
       self.fiducialScanlines.append(rightScanline)
       # Compute and add scanline to left of middle
-      leftScanline = self.ultrasoundGeometry.scanlineEndPoints(midScanlineNumber - ((i + 1) * scanlineInterval))
+      leftScanline = self.usGeometryLogic.scanlineEndPoints(midScanlineNumber - ((i + 1) * scanlineInterval))
       self.fiducialScanlines.append(leftScanline)
 
     # If there was an even number of scanlines, add the extra scanline
     if (evenNumberOfScanlines):
-      additionalScanline = self.ultrasoundGeometry.scanlineEndPoints(
+      additionalScanline = self.usGeometryLogic.scanlineEndPoints(
         midScanlineNumber + ((scanlinesPerHalf + 1) * scanlineInterval))  # Added to right arbitrarily
       self.fiducialScanlines.append(additionalScanline)
 
-  # Starts tracking changes to the input volume
-  def trackVolumeChanges(self, inputVolume):
-    ScanlineBoneDetectionLogic.changeEvent = inputVolume.AddObserver('ModifiedEvent', self.placeFiducials)
 
-  # Stops tracking changes to the input volume
+  def startTrackingVolumeChanges(self, inputVolume):
+    if inputVolume == None:
+      logging.warning('None give instead of inputVolume')
+      return
+
+    self.volumeModifiedObserverTag = inputVolume.AddObserver('ModifiedEvent', self.onVolumeModified)
+
+
   def stopTrackingVolumeChanges(self, inputVolume):
-    inputVolume.RemoveObserver(ScanlineBoneDetectionLogic.changeEvent)
-    ScanlineBoneDetectionLogic.changeEvent = 0
+    if self.volumeModifiedObserverTag != None:
+      inputVolume.RemoveObserver(self.volumeModifiedObserverTag)
+    self.volumeModifiedObserverTag = None
 
-  # Called when input volume has a modified event, will place fiducials on bone surface of fiducial scanlines
-  def placeFiducials(self, volumeNode, event):
+
+  def onVolumeModified(self, volumeNode, event):
+    # Fiducials for bone surface will be placed between these two values
+    self.startingDepthPixel = int(self.startingDepthMM / self.usGeometryLogic.outputImageSpacing[1])
+    self.endingDepthPixel = int(self.endingDepthMM / self.usGeometryLogic.outputImageSpacing[1])
+
     if (volumeNode.IsA('vtkMRMLScalarVolumeNode')):
       currentImageData = slicer.util.array(volumeNode.GetName())
       ijkToRas = vtk.vtkMatrix4x4()
       volumeNode.GetIJKToRASMatrix(ijkToRas)
       modifyFlag = self.fiducialNode.StartModify()
       # If configuring, only keep max two frames of scanline fiducials
-      if (ScanlineBoneDetectionLogic.configuring == 1 and self.fiducialNode.GetNumberOfFiducials() >= len(
+      if (SkullMarkerLogic.configuring == 1 and self.fiducialNode.GetNumberOfFiducials() >= len(
               self.fiducialScanlines) * 2):
         self.fiducialNode.RemoveAllMarkups()
       for i in range(len(self.fiducialScanlines)):
@@ -329,7 +366,7 @@ class SkullMarkerLogic(ScriptedLoadableModuleLogic):
         # Determine if there is a bone surface point on scanline
         currentScanline = currentImageData[0, :, startPoint[0]]
         boneSurfacePoint = self.scanlineBoneSurfacePoint(currentScanline, startPoint, endPoint,
-                                                         ScanlineBoneDetectionLogic.threshold)
+                                                         SkullMarkerLogic.threshold)
 
         # Add bone surface point fiducial
         if boneSurfacePoint is not None:
@@ -386,6 +423,7 @@ class SkullMarkerLogic(ScriptedLoadableModuleLogic):
 
     return boneSurfacePoint
 
+
 class SkullMarkerTest(ScriptedLoadableModuleTest):
   """
   This is the test case for your scripted module.
@@ -393,10 +431,12 @@ class SkullMarkerTest(ScriptedLoadableModuleTest):
   https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
   """
 
+
   def setUp(self):
     """ Do whatever is needed to reset the state - typically a scene clear will be enough.
     """
     slicer.mrmlScene.Clear(0)
+
 
   def runTest(self):
     """Run as few or as many tests as needed here.
@@ -404,38 +444,9 @@ class SkullMarkerTest(ScriptedLoadableModuleTest):
     self.setUp()
     self.test_SkullMarker1()
 
+
   def test_SkullMarker1(self):
-    """ Ideally you should have several levels of tests.  At the lowest level
-    tests should exercise the functionality of the logic with different inputs
-    (both valid and invalid).  At higher levels your tests should emulate the
-    way the user would interact with your code and confirm that it still works
-    the way you intended.
-    One of the most important features of the tests is that it should alert other
-    developers when their changes will have an impact on the behavior of your
-    module.  For example, if a developer removes a feature that you depend on,
-    your test should break so they know that the feature is needed.
-    """
 
     self.delayDisplay("Starting the test")
-    #
-    # first, get some data
-    #
-    import urllib
-    downloads = (
-        ('http://slicer.kitware.com/midas3/download?items=5767', 'FA.nrrd', slicer.util.loadVolume),
-        )
 
-    for url,name,loader in downloads:
-      filePath = slicer.app.temporaryPath + '/' + name
-      if not os.path.exists(filePath) or os.stat(filePath).st_size == 0:
-        logging.info('Requesting download %s from %s...\n' % (name, url))
-        urllib.urlretrieve(url, filePath)
-      if loader:
-        logging.info('Loading %s...' % (name,))
-        loader(filePath)
-    self.delayDisplay('Finished with download and loading')
-
-    volumeNode = slicer.util.getNode(pattern="FA")
-    logic = SkullMarkerLogic()
-    self.assertIsNotNone( logic.hasImageData(volumeNode) )
     self.delayDisplay('Test passed!')
