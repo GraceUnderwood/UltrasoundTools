@@ -115,6 +115,7 @@ class SkullMarkerWidget(ScriptedLoadableModuleWidget):
     self.endingDepthMM = qt.QSpinBox()
     self.endingDepthMM.setMinimum(2)
     self.endingDepthMM.setSingleStep(1)
+    self.endingDepthMM.setValue(10)
     self.endingDepthMM.setSuffix(" mm")
     inputsFormLayout.addRow("Ending fiducial depth: ", self.endingDepthMM)
 
@@ -124,6 +125,7 @@ class SkullMarkerWidget(ScriptedLoadableModuleWidget):
     self.thresholdSlider = ctk.ctkSliderWidget()
     self.thresholdSlider.maximum = 255
     self.thresholdSlider.setDecimals(0)
+    self.thresholdSlider.setValue(200)
     inputsFormLayout.addRow("Bone surface threshold: ", self.thresholdSlider)
 
     #
@@ -142,7 +144,7 @@ class SkullMarkerWidget(ScriptedLoadableModuleWidget):
     self.configureParametersButton = qt.QPushButton("Begin configuring threshold")
     self.configureParametersButton.setStyleSheet('QPushButton {background-color: #e67300}')
     self.configureParametersButton.toolTip = "Enables threshold configuration by placing fiducials to see current results, but does not save them"
-    self.configureParametersButton.enabled = False
+    # self.configureParametersButton.enabled = False
     functionsFormLayout.addRow(self.configureParametersButton)
 
     #
@@ -150,10 +152,14 @@ class SkullMarkerWidget(ScriptedLoadableModuleWidget):
     #
     self.fiducialPlacementButton = qt.QPushButton("Start fiducial placement")
     self.fiducialPlacementButton.setCheckable(True)
-    # self.fiducialPlacementButton.setStyleSheet('QPushButton {background-color: #009900}')
     self.fiducialPlacementButton.toolTip = "Starts and stops fiducial placement on bone surfaces along scanlines."
-    self.fiducialPlacementButton.enabled = False
+    # self.fiducialPlacementButton.setStyleSheet('QPushButton {background-color: #009900}')
+    # self.fiducialPlacementButton.enabled = False
     functionsFormLayout.addRow(self.fiducialPlacementButton)
+
+    self.messageLabel = qt.QLabel()
+    functionsFormLayout.addRow(self.messageLabel)
+
 
     # connections
     self.fiducialPlacementButton.connect('clicked(bool)', self.onFiducialPlacementButton)
@@ -182,31 +188,57 @@ class SkullMarkerWidget(ScriptedLoadableModuleWidget):
   def selectFile(self):
     fileName = qt.QFileDialog().getOpenFileName()
     self.configFile.setText(fileName)
-    self.fiducialPlacementButton.enabled = self.configureParametersButton.enabled = self.inputSelector.currentNode() and self.fiducialSelector.currentNode() and os.path.isfile(
-      fileName)
+    self.updateGui()
 
 
   def onFiducialPlacementButton(self):
-    logic = SkullMarkerLogic(self.configFile.text, self.inputSelector.currentNode(),
-                             self.fiducialSelector.currentNode(), self.startingDepthMM.value, self.endingDepthMM.value)
+
+    if self.fiducialPlacementButton.isChecked() == False:
+      self.logic.stopTrackingVolumeChanges(self.inputSelector.currentNode())
+      self.fiducialPlacementButton.setText("Start fiducial placement")
+      self.messageLabel.setText('')
+      return
+
+    if len(self.configFile.text) < 4:
+      self.messageLabel.setText('Select configuration file!')
+      self.fiducialPlacementButton.setChecked(False)
+      return
+
+    success = self.logic.importGeometry(self.configFile.text, self.inputSelector.currentNode())
+    if success == False:
+      logging.info('Could not load ultrasound geometry!')
+      self.messageLabel.setText('Select input volume!')
+      self.fiducialPlacementButton.setChecked(False)
+      return
+
+    selectedFiducialNode = self.fiducialSelector.currentNode()
+    if selectedFiducialNode == None:
+      self.messageLabel.setText('Select output fiducial list!')
+      self.fiducialPlacementButton.setChecked(False)
+      return
+
+    self.logic.setFiducialNode(selectedFiducialNode)
+    self.logic.setMinMaxDepth(self.startingDepthMM.value, self.endingDepthMM.value)
+    self.logic.setThreshold(self.thresholdSlider.value)
 
     # Validate the number of scanlines
-    if (self.scanlineNumber.value > logic.usGeometryLogic.numberOfScanlines):
+    if (self.scanlineNumber.value > self.logic.usGeometryLogic.numberOfScanlines):
       slicer.util.errorDisplay(
         "The number of scanlines specified exceeds the maximum of: " + str(logic.usGeometryLogic.numberOfScanlines))
-      return False
+      self.fiducialPlacementButton.setChecked(False)
+      return
+    if self.scanlineNumber.value < 1:
+      logging.warning('At least one scan line should be set')
+      self.fiducialPlacementButton.setChecked(False)
+      return
 
-    # If fiducials are not being placed, start tracking the volume changes and swtich button to "stop"
-    if self.fiducialPlacementButton.isChecked():
-      # logic.computeFiducialScanlines(self.scanlineNumber.value)
-      logic.startTrackingVolumeChanges(self.inputSelector.currentNode())
-      # self.fiducialPlacementButton.setStyleSheet('QPushButton {background-color: #cc2900}')
-      self.fiducialPlacementButton.setText("Stop fiducial placement")
-    # If fiducials are being placed, stop tracking volume changes and switch button to "start"
-    else:
-      logic.stopTrackingVolumeChanges(self.inputSelector.currentNode())
-      # self.fiducialPlacementButton.setStyleSheet('QPushButton {background-color: #009900}')
-      self.fiducialPlacementButton.setText("Start fiducial placement")
+    self.logic.computeFiducialScanlines(self.scanlineNumber.value)
+
+    # logic.computeFiducialScanlines(self.scanlineNumber.value)
+    self.logic.startTrackingVolumeChanges(self.inputSelector.currentNode())
+    # self.fiducialPlacementButton.setStyleSheet('QPushButton {background-color: #cc2900}')
+    self.fiducialPlacementButton.setText("Stop fiducial placement")
+    self.messageLabel.setText('Scan skull surface...')
 
 
   def onConfigureParametersButton(self):
@@ -214,14 +246,14 @@ class SkullMarkerWidget(ScriptedLoadableModuleWidget):
 
     if (SkullMarkerLogic.configuring == 0): # Configuring off, so begin configuration
       SkullMarkerLogic.configuring = 1
-      logic.computeFiducialScanlines(self.scanlineNumber.value)
-      logic.startTrackingVolumeChanges(self.inputSelector.currentNode())
+      self.logic.computeFiducialScanlines(self.scanlineNumber.value)
+      self.logic.startTrackingVolumeChanges(self.inputSelector.currentNode())
       self.configureParametersButton.setStyleSheet('QPushButton {background-color: #cc2900}')
       self.configureParametersButton.setText("Stop configuring threshold")
 
     else: # Configuring was on, so stop
       SkullMarkerLogic.configuring = 0
-      logic.stopTrackingVolumeChanges(self.inputSelector.currentNode())
+      self.logic.stopTrackingVolumeChanges(self.inputSelector.currentNode())
       self.configureParametersButton.setStyleSheet('QPushButton {background-color: #e67300}')
       self.configureParametersButton.setText("Begin configuring threshold")
       self.fiducialSelector.currentNode().RemoveAllMarkups()
@@ -258,9 +290,9 @@ class SkullMarkerWidget(ScriptedLoadableModuleWidget):
     if readyToRun == True:
       self.fiducialPlacementButton.enabled = True
       self.configureParametersButton.enabled = True
-    else:
-      self.fiducialPlacementButton.enabled = False
-      self.configureParametersButton.enabled = False
+    # else:
+      # self.fiducialPlacementButton.enabled = False
+      # self.configureParametersButton.enabled = False
 
 
 #
@@ -276,13 +308,25 @@ class SkullMarkerLogic(ScriptedLoadableModuleLogic):
     self.usGeometryLogic = None
     self.minDepthMm = 0
     self.maxDepthMm = 0
+    self.threshold = 200
 
     self.volumeModifiedObserverTag = None
 
 
   def importGeometry(self, configFile, inputVolume):
+    if inputVolume == None:
+      logging.warning('inputVolume == None')
+      return False
+
+    if configFile == None:
+      logging.warning('configFile == None')
+      return False
+
     import USGeometry
-    self.usGeometryLogic = USGeometry.USGeometryLogic(configFile, inputVolume)
+    self.usGeometryLogic = USGeometry.USGeometryLogic()
+    self.usGeometryLogic.setup(configFile, inputVolume)
+
+    return True
 
 
   def setFiducialNode(self, fiducialNode):
@@ -297,9 +341,12 @@ class SkullMarkerLogic(ScriptedLoadableModuleLogic):
     self.maxDepthMm = maxDepthMm
 
 
+  def setThreshold(self, t):
+    self.threshold = t
+
   def computeFiducialScanlines(self, scanlineNumber):
     # Find the middle scanline which will always be used
-    midScanlineNumber = self.usGeometryLogic.numberOfScanlines / 2
+    midScanlineNumber = (self.usGeometryLogic.numberOfScanlines - 1) / 2
     midScanline = self.usGeometryLogic.scanlineEndPoints(midScanlineNumber)
     self.fiducialScanlines.append(midScanline)
 
@@ -345,35 +392,51 @@ class SkullMarkerLogic(ScriptedLoadableModuleLogic):
 
   def onVolumeModified(self, volumeNode, event):
     # Fiducials for bone surface will be placed between these two values
-    self.startingDepthPixel = int(self.startingDepthMM / self.usGeometryLogic.outputImageSpacing[1])
-    self.endingDepthPixel = int(self.endingDepthMM / self.usGeometryLogic.outputImageSpacing[1])
+    self.startingDepthPixel = int(self.minDepthMm / self.usGeometryLogic.outputImageSpacing[1])
+    self.endingDepthPixel = int(self.maxDepthMm / self.usGeometryLogic.outputImageSpacing[1])
 
-    if (volumeNode.IsA('vtkMRMLScalarVolumeNode')):
-      currentImageData = slicer.util.array(volumeNode.GetName())
-      ijkToRas = vtk.vtkMatrix4x4()
-      volumeNode.GetIJKToRASMatrix(ijkToRas)
-      modifyFlag = self.fiducialNode.StartModify()
-      # If configuring, only keep max two frames of scanline fiducials
-      if (SkullMarkerLogic.configuring == 1 and self.fiducialNode.GetNumberOfFiducials() >= len(
-              self.fiducialScanlines) * 2):
-        self.fiducialNode.RemoveAllMarkups()
-      for i in range(len(self.fiducialScanlines)):
-        [scanlineStartPoint, scanlineEndPoint] = self.fiducialScanlines[i]
-        # Because we are dealing with linear we can just iterate down a column and do not need to use vtkLineSource as for curvilinear - can be added
-        startPoint = (scanlineStartPoint[0], self.startingDepthPixel, 0, 1)
-        endPoint = (scanlineEndPoint[0], self.endingDepthPixel, 0, 1)
+    if volumeNode == None:
+      logging.error('volumeNode == None')
+      return
 
-        # Determine if there is a bone surface point on scanline
-        currentScanline = currentImageData[0, :, startPoint[0]]
-        boneSurfacePoint = self.scanlineBoneSurfacePoint(currentScanline, startPoint, endPoint,
-                                                         SkullMarkerLogic.threshold)
+    if volumeNode.IsA('vtkMRMLScalarVolumeNode') == False:
+      logging.error('volumeNode is not a vtkMRMLScalarVolumeNode')
+      return
 
-        # Add bone surface point fiducial
-        if boneSurfacePoint is not None:
-          rasBoneSurfacePoint = ijkToRas.MultiplyPoint(boneSurfacePoint)
-          self.fiducialNode.AddFiducialFromArray(rasBoneSurfacePoint[:3])
+    currentImageData = slicer.util.array(volumeNode.GetID())
+    ijkToRas = vtk.vtkMatrix4x4()
+    volumeNode.GetIJKToRASMatrix(ijkToRas)
+    parentTransform = volumeNode.GetParentTransformNode()
+    if parentTransform != None:
+      parentToRasMatrix = vtk.vtkMatrix4x4()
+      parentTransform.GetMatrixTransformToWorld(parentToRasMatrix)
+      vtk.vtkMatrix4x4.Multiply4x4(parentToRasMatrix, ijkToRas, ijkToRas)
+    fiducialNode = slicer.util.getNode(self.fiducialNodeId)
+    if fiducialNode == None:
+      logging.error('Fiducial node not found!')
+      return
 
-      self.fiducialNode.EndModify(modifyFlag)
+    modifyFlag = fiducialNode.StartModify()
+    # If configuring, only keep max two frames of scanline fiducials
+    # if (SkullMarkerLogic.configuring == 1 and self.fiducialNode.GetNumberOfFiducials() >= len(
+    #         self.fiducialScanlines) * 2):
+    #   self.fiducialNode.RemoveAllMarkups()
+    for i in range(len(self.fiducialScanlines)):
+      [scanlineStartPoint, scanlineEndPoint] = self.fiducialScanlines[i]
+      # Because we are dealing with linear we can just iterate down a column and do not need to use vtkLineSource as for curvilinear - can be added
+      startPoint = (scanlineStartPoint[0], self.startingDepthPixel, 0, 1)
+      endPoint = (scanlineEndPoint[0], self.endingDepthPixel, 0, 1)
+
+      # Determine if there is a bone surface point on scanline
+      currentScanline = currentImageData[0, :, startPoint[0]]
+      boneSurfacePoint = self.scanlineBoneSurfacePoint(currentScanline, startPoint, endPoint, self.threshold)
+
+      # Add bone surface point fiducial
+      if boneSurfacePoint is not None:
+        rasBoneSurfacePoint = ijkToRas.MultiplyPoint(boneSurfacePoint)
+        fiducialNode.AddFiducialFromArray(rasBoneSurfacePoint[:3])
+
+      fiducialNode.EndModify(modifyFlag)
 
   def scanlineBoneSurfacePoint(self, currentScanline, startPoint, endPoint, threshold):
     boneSurfacePoint = None
@@ -446,7 +509,5 @@ class SkullMarkerTest(ScriptedLoadableModuleTest):
 
 
   def test_SkullMarker1(self):
-
-    self.delayDisplay("Starting the test")
 
     self.delayDisplay('Test passed!')

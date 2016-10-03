@@ -362,8 +362,13 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
   https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
   """
 
-  def __init__(self, configFile, inputVolume):
+  def __init__(self, parent=None):
+    ScriptedLoadableModuleLogic.__init__(self, parent)
+    self.ijkToRas = None
+    self.rasToIjk = None
+    self.scanlines = []
 
+  def setup(self, configFile, inputVolume):
     self.inputVolume = inputVolume
     self.rasToIjk = vtk.vtkMatrix4x4()
     self.ijkToRas = vtk.vtkMatrix4x4()
@@ -435,7 +440,8 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
       self.imagingDepthMm = float(scanConversionElement.attributes['ImagingDepthMm'].value)
       self.imageWidthPixel = int(self.transducerWidthMm / self.outputImageSpacing[0])
       self.topLeftPixel = [int(self.transducerCenterPixel[0] - 0.5 * self.imageWidthPixel), self.transducerCenterPixel[1]]
-      self.scanlineSpacingPixels = float(self.imageWidthPixel) / (self.numberOfScanlines - 1) # There are (numberOfScanlines - 1) spaces between first and last scanline
+      # There are (numberOfScanlines - 1) spaces between first and last scanline
+      self.scanlineSpacingPixels = float(self.imageWidthPixel - 1) / (self.numberOfScanlines - 1)
       self.scanlineLengthPixels = int(self.imagingDepthMm / self.outputImageSpacing[1])
 
     # Create the scanlines
