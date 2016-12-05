@@ -324,7 +324,11 @@ class SkullMarkerLogic(ScriptedLoadableModuleLogic):
 
     import USGeometry
     self.usGeometryLogic = USGeometry.USGeometryLogic()
-    self.usGeometryLogic.setup(configFile, inputVolume)
+
+    setupSuccess = self.usGeometryLogic.setup(configFile, inputVolume)
+    if setupSuccess == False:
+      logging.error('Could not set up ultrasound geometry from config file: ' + str(configFile))
+      return False
 
     return True
 
@@ -449,10 +453,10 @@ class SkullMarkerLogic(ScriptedLoadableModuleLogic):
         # Check for artifact
         # ***Note: currently testing w/ magic numbers***
         pointIsNotArtifact = True
-        pixelAboveOffset = offset - 3
-        pixelBelowOffset = offset + 3
-        pixelAboveAverage = currentScanline[int(startPoint[1]) + pixelAboveOffset]
-        pixelBelowAverage = currentScanline[int(startPoint[1]) + pixelBelowOffset]
+        pixelAboveOffset = int( offset - 3 )
+        pixelBelowOffset = int( offset + 3 )
+        pixelAboveAverage = int(currentScanline[int(startPoint[1]) + pixelAboveOffset])
+        pixelBelowAverage = int(currentScanline[int(startPoint[1]) + pixelBelowOffset])
         averageRange = 3
         for i in range(averageRange):
           pixelAboveAverage += currentScanline[int(startPoint[1]) + pixelAboveOffset - i]
