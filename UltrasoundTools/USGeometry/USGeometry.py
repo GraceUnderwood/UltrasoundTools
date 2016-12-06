@@ -369,6 +369,12 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
     self.scanlines = []
 
   def setup(self, configFile, inputVolume):
+    '''
+    Computes parameters from config file.
+    :param configFile:
+    :param inputVolume:
+    :return: True if numbers in config file pass validity check, False otherwise.
+    '''
     self.inputVolume = inputVolume
     self.rasToIjk = vtk.vtkMatrix4x4()
     self.ijkToRas = vtk.vtkMatrix4x4()
@@ -397,6 +403,7 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
 
     # Values common to both linear and curvilinear
     self.transducerGeometry = (scanConversionElement.attributes['TransducerGeometry'].value).upper()
+
     # Verify proper transducer geometry
     if (self.transducerGeometry != "CURVILINEAR" and self.transducerGeometry != "LINEAR"):
       errorMessage = "TransducerGeometry must be either CURVILINEAR or LINEAR"
@@ -405,6 +412,7 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
     self.outputImageSizePixel = scanConversionElement.attributes['OutputImageSizePixel'].value
     self.outputImageSizePixel = map(int, self.outputImageSizePixel.split(" "))
     volumeDimensions = self.inputVolume.GetImageData().GetDimensions()
+
     # Check that the corresponding input volume has same image slice dimensions as
     # specified in the configuration file
     if (self.outputImageSizePixel[0] != volumeDimensions[0]
@@ -414,6 +422,7 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
                      "Configuration file slice: [{} {}]".format(volumeDimensions[0], volumeDimensions[1], self.outputImageSizePixel[0], self.outputImageSizePixel[1])
       slicer.util.errorDisplay(errorMessage)
       raise ValueError(errorMessage)
+
     self.transducerCenterPixel = scanConversionElement.attributes['TransducerCenterPixel'].value
     self.transducerCenterPixel = map(int, self.transducerCenterPixel.split(" "))
     self.numberOfScanlines = int(scanConversionElement.attributes['NumberOfScanLines'].value)
@@ -438,10 +447,21 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
     elif (self.transducerGeometry == "LINEAR"):
       self.transducerWidthMm = float(scanConversionElement.attributes['TransducerWidthMm'].value)
       self.imagingDepthMm = float(scanConversionElement.attributes['ImagingDepthMm'].value)
-      self.imageWidthPixel = int(self.transducerWidthMm / self.outputImageSpacing[0])
-      self.topLeftPixel = [int(self.transducerCenterPixel[0] - 0.5 * self.imageWidthPixel), self.transducerCenterPixel[1]]
+      if int(self.transducerWidthMm / self.outputImageSpacing[0]) > self.outputImageSizePixel[0]:
+        newTransducerWidthMm = int(self.outputImageSizePixel[0] * self.outputImageSpacing[0])
+        logging.error('Transducer width: ' + str( int(self.transducerWidthMm / self.outputImageSpacing[0]) ) +
+                      ' px does not fit in output image width: ' + str( self.outputImageSizePixel[0] ) + ' px! ' +
+                      ' Try using transducer width of ' + str( newTransducerWidthMm ) + ' mm.')
+        return False
+      self.transducerWidthPixel = int(self.transducerWidthMm / self.outputImageSpacing[0])
+      self.topLeftPixel = [int(self.transducerCenterPixel[0] - 0.5 * self.transducerWidthPixel), self.transducerCenterPixel[1]]
       # There are (numberOfScanlines - 1) spaces between first and last scanline
-      self.scanlineSpacingPixels = float(self.imageWidthPixel - 1) / (self.numberOfScanlines - 1)
+      self.scanlineSpacingPixels = float(self.transducerWidthPixel - 1) / (self.numberOfScanlines - 1)
+      if int(self.imagingDepthMm / self.outputImageSpacing[1]) > self.outputImageSizePixel[1]:
+        newDepthMm = self.outputImageSizePixel[1] * self.outputImageSpacing[1]
+        logging.error('Imaging depth: ' + str(self.imagingDepthMm) + ' mm does not fit in output image size!' +
+                      ' Try using imaging depth of ' + str(newDepthMm) + ' mm or smaller.')
+        return False
       self.scanlineLengthPixels = int(self.imagingDepthMm / self.outputImageSpacing[1])
 
     # Create the scanlines
@@ -449,6 +469,8 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
       [start, end] = self.scanlineEndPoints(i)
       currentScanline = Scanline(start, end)
       self.scanlines.append(currentScanline)
+
+    return True
 
 
   def scanlineEndPoints(self, scanline):
@@ -484,6 +506,7 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
     # Verify acceptable starting point for scanline
     if (startScanlineX < 0 or startScanlineX > self.outputImageSizePixel[0]-1):
       errorMessage = "Scanline starting point X value: {} out of bounds!".format(startScanlineX)
+      logging.error(errorMessage)
       slicer.util.errorDisplay(errorMessage)
       raise ValueError(errorMessage)
     if (startScanlineY < 0 or startScanlineY > self.outputImageSizePixel[1]-1):
@@ -743,9 +766,9 @@ class UltrasoundTransducerGeometry:
     elif (self.transducerGeometry == "LINEAR"):
       self.transducerWidthMm = float(scanConversionElement.attributes['TransducerWidthMm'].value)
       self.imagingDepthMm = float(scanConversionElement.attributes['ImagingDepthMm'].value)
-      self.imageWidthPixel = self.transducerWidthMm / float(self.outputImageSpacing[0])
-      self.topLeftPixel = [self.transducerCenterPixel[0] - 0.5 * float(self.imageWidthPixel), self.transducerCenterPixel[1]]
-      self.scanlineSpacingPixels = self.imageWidthPixel / float(self.numberOfScanlines)
+      self.transducerWidthPixel = self.transducerWidthMm / float(self.outputImageSpacing[0])
+      self.topLeftPixel = [self.transducerCenterPixel[0] - 0.5 * float(self.transducerWidthPixel), self.transducerCenterPixel[1]]
+      self.scanlineSpacingPixels = self.transducerWidthPixel / float(self.numberOfScanlines)
       self.scanlineLengthPixels = self.imagingDepthMm / self.outputImageSpacing[1]
 
   def scanlineEndPoints(self, scanline):
