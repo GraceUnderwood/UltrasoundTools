@@ -233,6 +233,7 @@ class SkullMarkerWidget(ScriptedLoadableModuleWidget):
     self.logic.setMinMaxDepth(self.startingDepthMM.value, self.endingDepthMM.value)
     self.logic.setThreshold(self.thresholdSlider.value)
     self.logic.setMinimumDistanceBetween(self.minimumDistanceBetweenPointsMM.value)
+    self.logic.setFiducialArray()
 
     # Validate the number of scanlines
     if (self.scanlineNumber.value > self.logic.usGeometryLogic.numberOfScanlines):
@@ -367,6 +368,9 @@ class SkullMarkerLogic(ScriptedLoadableModuleLogic):
 
   def setThreshold(self, t):
     self.threshold = t
+
+  def setFiducialArray(self):
+    self.fiducialArray = None
 
   def computeFiducialScanlines(self, scanlineNumber):
     # Find the middle scanline which will always be used
